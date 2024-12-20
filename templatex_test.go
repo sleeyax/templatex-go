@@ -11,12 +11,12 @@ import (
 
 func TestMatchInputToTemplate(t *testing.T) {
 	expected := `
-			id: d416e1b0-97b2-4a49-8ad5-2e6b2b46eae0
+			id: "d416e1b0-97b2-4a49-8ad5-2e6b2b46eae0"
 			static-string: "abc"
 			random-number: 150
 	`
 	format := `
-			id: {{isUUID}}
+			id: "{{isUUID}}"
 			static-string: "abc"
 			random-number: {{inRange 100 200}}
 	`
@@ -25,7 +25,7 @@ func TestMatchInputToTemplate(t *testing.T) {
 		Funcs(FuncMap{
 			"isUUID": {
 				Parse: func(reader *bufio.Reader) ([]string, error) {
-					v, err := ReadUntilWhitespaceOrEOF(reader)
+					v, err := ReadQuotedString(reader)
 					if err != nil {
 						return []string{}, err
 					}
@@ -41,7 +41,7 @@ func TestMatchInputToTemplate(t *testing.T) {
 			},
 			"inRange": {
 				Parse: func(reader *bufio.Reader) ([]string, error) {
-					v, err := ReadUntilWhitespaceOrEOF(reader)
+					v, err := ReadUntilWhitespace(reader)
 					if err != nil {
 						return []string{}, err
 					}
