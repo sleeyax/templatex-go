@@ -20,15 +20,19 @@ type Func struct {
 type FuncMap map[string]Func
 
 type Templatex struct {
-	tpl        *template.Template
-	input      *bufio.Reader
-	parseFuncs map[string]ParseFunc
+	tpl              *template.Template
+	input            *bufio.Reader
+	parseFuncs       map[string]ParseFunc
+	leftDelimLength  int
+	rightDelimLength int
 }
 
 func New(tpl *template.Template) *Templatex {
 	return &Templatex{
-		tpl:        tpl,
-		parseFuncs: make(map[string]ParseFunc),
+		tpl:              tpl,
+		parseFuncs:       make(map[string]ParseFunc),
+		leftDelimLength:  2,
+		rightDelimLength: 2,
 	}
 }
 
@@ -52,6 +56,13 @@ func (t *Templatex) Input(text string) *Templatex {
 	return t
 }
 
+func (t *Templatex) Delims(left, right string) *Templatex {
+	t.tpl.Delims(left, right)
+	t.leftDelimLength = len(left)
+	t.rightDelimLength = len(right)
+	return t
+}
+
 func (t *Templatex) Parse(text string) (*Templatex, error) {
 	if t.input == nil {
 		return nil, errors.New("input required")
@@ -61,27 +72,8 @@ func (t *Templatex) Parse(text string) (*Templatex, error) {
 		return nil, err
 	}
 
+	var previousPosition int
 	for _, node := range t.tpl.Tree.Root.Nodes {
-		if node.Type() == parse.NodeText {
-			textNode := node.(*parse.TextNode)
-			text := textNode.Text
-
-			for i := 0; i < len(text); i++ {
-				r, _, err := t.input.ReadRune()
-				if err != nil {
-					if err == io.EOF {
-						break
-					}
-
-					return nil, err
-				}
-
-				if r != rune(text[i]) {
-					return nil, errors.New("input does not match template")
-				}
-			}
-		}
-
 		if node.Type() == parse.NodeAction {
 			actionNode := node.(*parse.ActionNode)
 
@@ -105,6 +97,21 @@ func (t *Templatex) Parse(text string) (*Templatex, error) {
 				if !ok {
 					continue
 				}
+
+				// Discard the bytes we've read so far from the input buffer.
+				currentPosition := int(node.Position())
+				var bytesRead int
+				if previousPosition == 0 {
+					bytesRead = currentPosition - t.leftDelimLength
+				} else {
+					distance := currentPosition - previousPosition
+					delimLen := t.leftDelimLength + t.rightDelimLength
+					bytesRead = distance - delimLen
+				}
+				if _, err := t.input.Discard(bytesRead); err != nil {
+					return nil, err
+				}
+				previousPosition = currentPosition + len(cmd.String())
 
 				args, err := fn(t.input)
 				if err != nil {
