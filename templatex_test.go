@@ -10,9 +10,11 @@ import (
 )
 
 type testCase struct {
-	name     string
-	input    string
-	template string
+	name           string
+	input          string
+	template       string
+	mustError      bool
+	mustErrorMatch error
 }
 
 type data struct {
@@ -90,6 +92,27 @@ func TestTemplatex_Parse(t *testing.T) {
 				bar: {{.Bar}}
 			`,
 		},
+		{
+			name: "Invalid function",
+			input: `
+				oops: abc
+			`,
+			template: `
+				oops: {{isNonExistent}}
+			`,
+			mustError: true,
+		},
+		{
+			name: "unsupported node",
+			input: `
+				foo: 1
+			`,
+			template: `
+				foo: {{- 45}}
+			`,
+			mustError:      true,
+			mustErrorMatch: ErrorUnsupportedNode,
+		},
 	}
 
 	d := data{Foo: 1, Bar: 2}
@@ -139,19 +162,27 @@ func TestTemplatex_Parse(t *testing.T) {
 				Input(tc.input).
 				Parse(tc.template, d)
 
-			if err != nil {
-				t.Fatalf("failed to parse template: %v", err)
-			}
+			if tc.mustError {
+				if err == nil {
+					t.Fatalf("expected error, got nil")
+				}
 
-			var buffer bytes.Buffer
-			err = tpl.Execute(&buffer, d)
-			if err != nil {
-				t.Fatalf("failed to execute template: %v", err)
-			}
+				if tc.mustErrorMatch != nil && !errors.Is(err, tc.mustErrorMatch) {
+					t.Fatalf("expected error %v, got %v", tc.mustErrorMatch, err)
+				}
+			} else {
+				if err != nil {
+					t.Fatalf("failed to parse template: %v", err)
+				}
 
-			actual := buffer.String()
-			if tc.input != actual {
-				t.Fatalf("expected %s, got %s", tc.input, actual)
+				var buffer bytes.Buffer
+				if err = tpl.Execute(&buffer, d); err != nil {
+					t.Fatalf("failed to execute template: %v", err)
+				}
+
+				if actual := buffer.String(); tc.input != actual {
+					t.Fatalf("expected %s, got %s", tc.input, actual)
+				}
 			}
 		})
 	}

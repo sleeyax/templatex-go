@@ -11,6 +11,17 @@ import (
 	"text/template/parse"
 )
 
+var (
+	// ErrorUnsupportedNode is returned when an unsupported field or node is encountered during parsing.
+	ErrorUnsupportedNode = errors.New("unsupported node")
+	// ErrorInvalidNode is returned when a supported node is found during parsing but determined to be in an invalid or unsupported format.
+	ErrorInvalidNode = errors.New("invalid node")
+	// ErrorUnsupportedFunction is returned when an unsupported or unmapped function is encountered during parsing.
+	ErrorUnsupportedFunction = errors.New("unsupported or unmapped function")
+	// ErrorInputRequired is returned when no input has been provided yet but the Parse method is called.
+	ErrorInputRequired = errors.New("input required")
+)
+
 type ParseFunc func(reader *bufio.Reader) ([]string, error)
 type ValidateFunc any
 
@@ -67,7 +78,7 @@ func (t *Templatex) Delims(left, right string) *Templatex {
 
 func (t *Templatex) Parse(text string, data any) (*Templatex, error) {
 	if t.input == nil {
-		return nil, errors.New("input required")
+		return nil, ErrorInputRequired
 	}
 
 	if _, err := t.tpl.Parse(text); err != nil {
@@ -81,16 +92,16 @@ func (t *Templatex) Parse(text string, data any) (*Templatex, error) {
 
 			pipeNode := actionNode.Pipe
 			if pipeNode == nil {
-				continue
+				return nil, ErrorInvalidNode
 			}
 
 			if len(pipeNode.Cmds) == 0 {
-				continue
+				return nil, ErrorInvalidNode
 			}
 			cmd := pipeNode.Cmds[0]
 
 			if len(cmd.Args) == 0 {
-				continue
+				return nil, ErrorInvalidNode
 			}
 			cmdArg := cmd.Args[0]
 
@@ -117,7 +128,8 @@ func (t *Templatex) Parse(text string, data any) (*Templatex, error) {
 				identifierNode := cmdArg.(*parse.IdentifierNode)
 				fn, ok := t.parseFuncs[identifierNode.Ident]
 				if !ok {
-					continue
+					// TODO: assume this is a builtin function, which should be evaluated instead
+					return nil, ErrorUnsupportedFunction
 				}
 
 				args, err := fn(t.input)
@@ -152,6 +164,8 @@ func (t *Templatex) Parse(text string, data any) (*Templatex, error) {
 				if _, err := t.input.Discard(buffer.Len()); err != nil {
 					return nil, fmt.Errorf("failed to discard bytes read from field: %w", err)
 				}
+			} else {
+				return nil, ErrorUnsupportedNode
 			}
 		}
 	}
