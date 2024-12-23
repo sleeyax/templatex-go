@@ -21,6 +21,7 @@ var (
 	ErrorUnsupportedFunction = errors.New("unsupported or unmapped function")
 	// ErrorInputRequired is returned when no input has been provided yet but the Parse method is called.
 	ErrorInputRequired = errors.New("input required")
+	ErrorDataRequired  = errors.New("data required")
 	// ErrorInputValidation is returned when the input doesn't match the template.
 	ErrorInputValidation = errors.New("input doesn't match template")
 )
@@ -39,6 +40,7 @@ type FuncMap map[string]Func
 type Templatex struct {
 	tpl                    *template.Template
 	input                  *bufio.Reader
+	data                   any
 	parseFuncs             map[string]ParseFunc
 	onInputValidationError OnInputValidationFunc
 	leftDelimLength        int
@@ -54,13 +56,13 @@ func New(tpl *template.Template) *Templatex {
 	}
 }
 
+func (t *Templatex) Template() *template.Template {
+	return t.tpl
+}
+
 func (t *Templatex) OnInputValidationError(fn OnInputValidationFunc) *Templatex {
 	t.onInputValidationError = fn
 	return t
-}
-
-func (t *Templatex) Template() *template.Template {
-	return t.tpl
 }
 
 func (t *Templatex) Funcs(funcMap FuncMap) *Templatex {
@@ -74,11 +76,6 @@ func (t *Templatex) Funcs(funcMap FuncMap) *Templatex {
 	return t
 }
 
-func (t *Templatex) Input(text string) *Templatex {
-	t.input = bufio.NewReader(strings.NewReader(text))
-	return t
-}
-
 func (t *Templatex) Delims(left, right string) *Templatex {
 	t.tpl.Delims(left, right)
 	t.leftDelimLength = len(left)
@@ -86,7 +83,17 @@ func (t *Templatex) Delims(left, right string) *Templatex {
 	return t
 }
 
-func (t *Templatex) Parse(text string, data any) (*Templatex, error) {
+func (t *Templatex) Input(text string) *Templatex {
+	t.input = bufio.NewReader(strings.NewReader(text))
+	return t
+}
+
+func (t *Templatex) Data(data any) *Templatex {
+	t.data = data
+	return t
+}
+
+func (t *Templatex) Parse(text string) (*Templatex, error) {
 	if t.input == nil {
 		return nil, ErrorInputRequired
 	}
@@ -181,6 +188,10 @@ func (t *Templatex) Parse(text string, data any) (*Templatex, error) {
 			} else if cmdArg.Type() == parse.NodeField {
 				// If it's a regular field, such as {{.Foo}} or {{.Bar.Baz}}, we need to evaluate it to determine the amount of bytes to discard in order to advance the input buffer.
 
+				if t.data == nil {
+					return nil, ErrorDataRequired
+				}
+
 				fieldNode := cmdArg.(*parse.FieldNode)
 
 				tpl, err := template.New("field").Parse(fmt.Sprintf("{{.%s}}", strings.Join(fieldNode.Ident, ".")))
@@ -189,7 +200,7 @@ func (t *Templatex) Parse(text string, data any) (*Templatex, error) {
 				}
 
 				var buffer bytes.Buffer
-				if err = tpl.Execute(&buffer, data); err != nil {
+				if err = tpl.Execute(&buffer, t.data); err != nil {
 					return nil, fmt.Errorf("failed to evaluate field: %w", err)
 				}
 
