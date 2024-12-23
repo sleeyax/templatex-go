@@ -1,10 +1,11 @@
 package templatex
 
 import (
-	"bufio"
 	"bytes"
 	"errors"
+	"fmt"
 	"strconv"
+	"strings"
 	"testing"
 	"text/template"
 )
@@ -148,13 +149,7 @@ func TestTemplatex_Parse(t *testing.T) {
 			tpl, err := New(template.New("test")).
 				Funcs(FuncMap{
 					"isUUID": {
-						Parse: func(reader *bufio.Reader) ([]string, error) {
-							v, err := ReadQuotedString(reader)
-							if err != nil {
-								return []string{}, err
-							}
-							return []string{v}, nil
-						},
+						Parse: ParseQuotedString,
 						Validate: func(uuid string) (string, error) {
 							if !isValidUUID(uuid) {
 								return "", errors.New("invalid UUID")
@@ -164,13 +159,7 @@ func TestTemplatex_Parse(t *testing.T) {
 						},
 					},
 					"inRange": {
-						Parse: func(reader *bufio.Reader) ([]string, error) {
-							v, err := ReadUntilWhitespace(reader)
-							if err != nil {
-								return []string{}, err
-							}
-							return []string{v}, nil
-						},
+						Parse: ParseUntilWhiteSpace,
 						Validate: func(value string, min, max int) (any, error) {
 							valueAsNumber, err := strconv.Atoi(value)
 							if err != nil {
@@ -185,8 +174,9 @@ func TestTemplatex_Parse(t *testing.T) {
 						},
 					},
 				}).
+				Data(d).
 				Input(tc.input).
-				Parse(tc.template, d)
+				Parse(tc.template)
 
 			if tc.mustError {
 				if err == nil {
@@ -212,4 +202,82 @@ func TestTemplatex_Parse(t *testing.T) {
 			}
 		})
 	}
+}
+
+func ExampleTemplatex_Parse() {
+	// Create a new Go template instance.
+	tpl := template.New("example")
+
+	// Create a new templatex instance.
+	tplx, err := New(tpl).
+		// Define custom parsing and validation functions.
+		// The parser functions are used to extract the value from the input.
+		// The validation functions are used to validate the extracted value (as you would define it on a regular `template.FuncMap` from go's `text/template` lib).
+		Funcs(FuncMap{
+			"isUUID": {
+				// Parses the UUID from between the quotes "<UUID>".
+				Parse: ParseQuotedString,
+				// Validates that the parsed value is a valid UUID.
+				Validate: func(uuid string) (string, error) {
+					if !isValidUUID(uuid) {
+						return "", errors.New("invalid UUID")
+					}
+
+					return uuid, nil
+				},
+			},
+			"inRange": {
+				// Parses the value until the first whitespace or newline character. "100 " -> "100".
+				Parse: ParseUntilWhiteSpace,
+				// Validates that the parsed value is an integer within the specified range.
+				Validate: func(value string, min, max int) (any, error) {
+					valueAsNumber, err := strconv.Atoi(value)
+					if err != nil {
+						return "", err
+					}
+
+					if valueAsNumber < min || valueAsNumber > max {
+						return "", errors.New("value is not in range")
+					}
+
+					return value, nil
+				},
+			},
+		}).
+		// Provide input data that should be verified using the template below.
+		Input(`
+			id: "d416e1b0-97b2-4a49-8ad5-2e6b2b46eae0"
+			static-string: "abc"
+			invalid-string: def
+			random-number: 150
+		`).
+		// Provide the template that should be used to verify the input data.
+		// Keep in mind that it supports only a subset of the Go template syntax.
+		// You'll gracefully receive an error if you use unsupported syntax.
+		Parse(`
+			id: "{{isUUID}}"
+			static-string: "abc"
+			invalid-string: def
+			random-number: {{inRange 100 200}}
+		`)
+
+	if err != nil {
+		panic(err)
+	}
+
+	var buffer bytes.Buffer
+	if err = tplx.Execute(&buffer, nil); err != nil {
+		panic(err)
+	}
+
+	output := buffer.String()
+	output = strings.TrimSpace(strings.ReplaceAll(output, "\n\t\t\t", "\n")) // clean the output, only needed for the example.
+
+	fmt.Println(output)
+
+	// Output:
+	// id: "d416e1b0-97b2-4a49-8ad5-2e6b2b46eae0"
+	// static-string: "abc"
+	// invalid-string: def
+	// random-number: 150
 }
