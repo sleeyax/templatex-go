@@ -114,5 +114,60 @@ func main() {
 }
 ```
 
+To verify that our input works, let's change it to:
+```text
+id: "d416e1b0-97b2-4a49-8ad5"
+static-string: "abc"
+invalid-string: def
+random-number: 999
+```
+
+And run the example again:
+```text
+panic: template: example:2:10: executing "example" at <isUUID >: error calling isUUID: invalid UUID
+```
+
+As expected, the UUID is invalid and the program panics!
+
+If you don't want to error early on the fist validation error, you can change your parser function to substitute the value with a default value instead of returning an error:
+
+```go
+"isUUID": {
+    // ...
+    Validate: func(uuid string) (string, error) {
+        if !isValidUUID(uuid) {
+            return "[INVALID UUID]", nil
+        }
+
+        return uuid, nil
+    },
+},
+"inRange": {
+    // ...
+    Validate: func(value string, min, max int) (any, error) {
+        valueAsNumber, err := strconv.Atoi(value)
+        if err != nil {
+            return "[INVALID NUMBER]", nil
+        }
+
+        if valueAsNumber < min || valueAsNumber > max {
+            return "[OUT OF RANGE]", nil
+        }
+
+        return value, nil
+    },
+},
+```
+
+Now the output will be:
+```text
+id: "[INVALID UUID]"
+static-string: "abc"
+invalid-string: def
+random-number: [OUT OF RANGE]
+```
+
+You can then process the output further using a text diffing tool/library of your choice. 
+
 ## Contributions
 If you want to add a feature or fix, do so yourself by submitting a PR. I currently do not wish to maintain this library any further than I need to for my own use case.
