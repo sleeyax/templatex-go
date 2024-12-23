@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"slices"
 	"strings"
 	"text/template"
 	"text/template/parse"
@@ -20,10 +21,13 @@ var (
 	ErrorUnsupportedFunction = errors.New("unsupported or unmapped function")
 	// ErrorInputRequired is returned when no input has been provided yet but the Parse method is called.
 	ErrorInputRequired = errors.New("input required")
+	// ErrorInputValidation is returned when the input doesn't match the template.
+	ErrorInputValidation = errors.New("input doesn't match template")
 )
 
 type ParseFunc func(reader *bufio.Reader) ([]string, error)
 type ValidateFunc any
+type OnInputValidationFunc func(actual, expected string)
 
 type Func struct {
 	Parse    ParseFunc
@@ -33,11 +37,12 @@ type Func struct {
 type FuncMap map[string]Func
 
 type Templatex struct {
-	tpl              *template.Template
-	input            *bufio.Reader
-	parseFuncs       map[string]ParseFunc
-	leftDelimLength  int
-	rightDelimLength int
+	tpl                    *template.Template
+	input                  *bufio.Reader
+	parseFuncs             map[string]ParseFunc
+	onInputValidationError OnInputValidationFunc
+	leftDelimLength        int
+	rightDelimLength       int
 }
 
 func New(tpl *template.Template) *Templatex {
@@ -47,6 +52,11 @@ func New(tpl *template.Template) *Templatex {
 		leftDelimLength:  2,
 		rightDelimLength: 2,
 	}
+}
+
+func (t *Templatex) OnInputValidationError(fn OnInputValidationFunc) *Templatex {
+	t.onInputValidationError = fn
+	return t
 }
 
 func (t *Templatex) Template() *template.Template {
@@ -86,7 +96,28 @@ func (t *Templatex) Parse(text string, data any) (*Templatex, error) {
 	}
 
 	var previousPosition int
+	var textBytesRead int
 	for _, node := range t.tpl.Tree.Root.Nodes {
+		if node.Type() == parse.NodeText {
+			textNode := node.(*parse.TextNode)
+
+			buf := make([]byte, len(textNode.Text))
+			var err error
+			if textBytesRead, err = io.ReadFull(t.input, buf); err != nil {
+				return nil, fmt.Errorf("failed to validate input: %w", err)
+			}
+
+			if !slices.Equal(buf, textNode.Text) {
+				if t.onInputValidationError != nil {
+					t.onInputValidationError(string(buf), string(textNode.Text))
+				}
+
+				return nil, fmt.Errorf("%w", ErrorInputValidation)
+			}
+
+			continue
+		}
+
 		if node.Type() == parse.NodeAction {
 			actionNode := node.(*parse.ActionNode)
 
@@ -115,6 +146,7 @@ func (t *Templatex) Parse(text string, data any) (*Templatex, error) {
 				delimLen := t.leftDelimLength + t.rightDelimLength
 				bytesRead = distance - delimLen
 			}
+			bytesRead -= textBytesRead
 			if _, err := t.input.Discard(bytesRead); err != nil {
 				return nil, err
 			}
@@ -167,7 +199,11 @@ func (t *Templatex) Parse(text string, data any) (*Templatex, error) {
 			} else {
 				return nil, ErrorUnsupportedNode
 			}
+
+			continue
 		}
+
+		return nil, ErrorUnsupportedNode
 	}
 
 	return t, nil

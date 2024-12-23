@@ -113,6 +113,32 @@ func TestTemplatex_Parse(t *testing.T) {
 			mustError:      true,
 			mustErrorMatch: ErrorUnsupportedNode,
 		},
+		{
+			name: "Input doesn't match template",
+			input: `
+				oops: 11a40eea-1a46-476c-b0e9-b301c690a115
+			`,
+			template: `
+				my-string: {{isUUID}}
+			`,
+			mustError:      true,
+			mustErrorMatch: ErrorInputValidation,
+		},
+		{
+			name: "Input in wrong order",
+			input: `
+				a: 1
+				b: 1
+				c: 1
+			`,
+			template: `
+				c: 1
+				b: 1
+				a: 1
+			`,
+			mustError:      true,
+			mustErrorMatch: ErrorInputValidation,
+		},
 	}
 
 	d := data{Foo: 1, Bar: 2}
