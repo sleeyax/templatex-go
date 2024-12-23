@@ -57,11 +57,13 @@ func TestTemplatex_Parse(t *testing.T) {
 				id: "d416e1b0-97b2-4a49-8ad5-2e6b2b46eae0"
 				static-string: "abc"
 				random-number: 150
+				static-string: "def"
 			`,
 			template: `
 				id: "{{isUUID}}"
 				static-string: "abc"
 				random-number: {{inRange 100 200}}
+				static-string: "def"
 			`,
 		},
 		{
@@ -79,14 +81,18 @@ func TestTemplatex_Parse(t *testing.T) {
 			name: "Validation template with variables",
 			input: `
 				foo: 1
+				uuid: "d416e1b0-97b2-4a49-8ad5-2e6b2b46eae0"
 				bar: 2
 			`,
 			template: `
-				foo: {{inRange 0 1}}
+				foo: {{.Foo}}
+				uuid: "{{isUUID}}"
 				bar: {{.Bar}}
 			`,
 		},
 	}
+
+	d := data{Foo: 1, Bar: 2}
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -131,14 +137,14 @@ func TestTemplatex_Parse(t *testing.T) {
 					},
 				}).
 				Input(tc.input).
-				Parse(tc.template)
+				Parse(tc.template, d)
 
 			if err != nil {
 				t.Fatalf("failed to parse template: %v", err)
 			}
 
 			var buffer bytes.Buffer
-			err = tpl.Execute(&buffer, data{Foo: 1, Bar: 2})
+			err = tpl.Execute(&buffer, d)
 			if err != nil {
 				t.Fatalf("failed to execute template: %v", err)
 			}

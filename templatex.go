@@ -2,7 +2,9 @@ package templatex
 
 import (
 	"bufio"
+	"bytes"
 	"errors"
+	"fmt"
 	"io"
 	"strings"
 	"text/template"
@@ -63,7 +65,7 @@ func (t *Templatex) Delims(left, right string) *Templatex {
 	return t
 }
 
-func (t *Templatex) Parse(text string) (*Templatex, error) {
+func (t *Templatex) Parse(text string, data any) (*Templatex, error) {
 	if t.input == nil {
 		return nil, errors.New("input required")
 	}
@@ -91,27 +93,32 @@ func (t *Templatex) Parse(text string) (*Templatex, error) {
 				continue
 			}
 			cmdArg := cmd.Args[0]
+
+			// Discard the bytes we've read so far from the input buffer.
+			currentPosition := int(node.Position())
+			var bytesRead int
+			if previousPosition == 0 {
+				bytesRead = currentPosition - t.leftDelimLength
+			} else {
+				distance := currentPosition - previousPosition
+				delimLen := t.leftDelimLength + t.rightDelimLength
+				bytesRead = distance - delimLen
+			}
+			if _, err := t.input.Discard(bytesRead); err != nil {
+				return nil, err
+			}
+			previousPosition = currentPosition + len(cmd.String())
+
 			if cmdArg.Type() == parse.NodeIdentifier {
+				// If it's an identifier, such as {{isUUID}}, we need to parse the argument.
+				// This is accomplished by calling the Parse function associated with the identifier.
+				// Finally, we replace the argument node with the parsed arguments.
+
 				identifierNode := cmdArg.(*parse.IdentifierNode)
 				fn, ok := t.parseFuncs[identifierNode.Ident]
 				if !ok {
 					continue
 				}
-
-				// Discard the bytes we've read so far from the input buffer.
-				currentPosition := int(node.Position())
-				var bytesRead int
-				if previousPosition == 0 {
-					bytesRead = currentPosition - t.leftDelimLength
-				} else {
-					distance := currentPosition - previousPosition
-					delimLen := t.leftDelimLength + t.rightDelimLength
-					bytesRead = distance - delimLen
-				}
-				if _, err := t.input.Discard(bytesRead); err != nil {
-					return nil, err
-				}
-				previousPosition = currentPosition + len(cmd.String())
 
 				args, err := fn(t.input)
 				if err != nil {
@@ -127,6 +134,24 @@ func (t *Templatex) Parse(text string) (*Templatex, error) {
 				}
 
 				cmd.Args = append(cmd.Args[:1], append(newArgNodes, cmd.Args[1:]...)...)
+			} else if cmdArg.Type() == parse.NodeField {
+				// If it's a regular field, such as {{.Foo}} or {{.Bar.Baz}}, we need to evaluate it to determine the amount of bytes to discard in order to advance the input buffer.
+
+				fieldNode := cmdArg.(*parse.FieldNode)
+
+				tpl, err := template.New("field").Parse(fmt.Sprintf("{{.%s}}", strings.Join(fieldNode.Ident, ".")))
+				if err != nil {
+					return nil, fmt.Errorf("failed to evaluate field: %w", err)
+				}
+
+				var buffer bytes.Buffer
+				if err = tpl.Execute(&buffer, data); err != nil {
+					return nil, fmt.Errorf("failed to evaluate field: %w", err)
+				}
+
+				if _, err := t.input.Discard(buffer.Len()); err != nil {
+					return nil, fmt.Errorf("failed to discard bytes read from field: %w", err)
+				}
 			}
 		}
 	}
