@@ -10,14 +10,13 @@ This library wraps a subset of go's [text/template](https://pkg.go.dev/text/temp
 Contains zero (0) extra dependencies and no forked code. 
 
 ## Example
-Consider you are given the following arbitrary input:
+Consider you are analyzing the following arbitrary input:
 
 ```text
 id: "d416e1b0-97b2-4a49-8ad5-2e6b2b46eae0"
 static-string: "abc"
 invalid-string: def
 random-number: 150
-static-string: "def"
 ```
 
 Then you can validate it as follows:
